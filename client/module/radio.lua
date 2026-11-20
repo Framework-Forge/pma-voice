@@ -6,9 +6,9 @@ local radioAnim = {
 	anim = "generic_radio_enter",
 }
 
----@return boolean isEnabled if radioEnabled is true and LocalPlayer.state.disableRadio is 0 (no bits set)
+---@return boolean isEnabled if radioEnabled is true and the voice cache has no disable bits
 function isRadioEnabled()
-	return radioEnabled and LocalPlayer.state.disableRadio == 0
+	return radioEnabled and (PMAState.disableRadio or 0) == 0
 end
 
 --- event syncRadioData
@@ -48,7 +48,7 @@ RegisterNetEvent('pma-voice:syncRadioData', syncRadioData)
 function setTalkingOnRadio(plySource, enabled)
 	radioData[plySource] = enabled
 
-	if not isRadioEnabled() then return logger.info("[radio] Ignoring setTalkingOnRadio. radioEnabled: %s disableRadio: %s", radioEnabled, LocalPlayer.state.disableRadio) end
+	if not isRadioEnabled() then return logger.info("[radio] Ignoring setTalkingOnRadio. radioEnabled: %s disableRadio: %s", radioEnabled, PMAState.disableRadio) end
 	-- If we're on a call we don't want to toggle their voice disabled this will break calls.
 	local enabled = enabled or callData[plySource]
 	toggleVoice(plySource, enabled, 'radio')
@@ -164,10 +164,21 @@ end)
 --- check if the player is dead
 --- seperating this so if people use different methods they can customize
 --- it to their need as this will likely never be changed
---- but you can integrate the below state bag to your death resources.
---- LocalPlayer.state:set('isDead', true or false, false)
+--- Death follows the framework character cache, with the native as a fallback.
+local function invalidateDeathCache()
+    pr_lib.cache.clear('metadata:self:isdead')
+    pr_lib.cache.clear('metadata:self:inlaststand')
+end
+AddEventHandler('pr_bridge:client:OnInventoryChanged',invalidateDeathCache)
+AddEventHandler('pr_bridge:client:OnPlayerLoaded',invalidateDeathCache)
+AddEventHandler('pr_bridge:client:OnPlayerUnloaded',invalidateDeathCache)
+RegisterNetEvent('QBCore:Player:SetPlayerData',function() SetTimeout(0,invalidateDeathCache) end)
+RegisterNetEvent('qbx_core:client:onSetMetaData',function(key)
+    if key=='isdead' or key=='inlaststand' then SetTimeout(0,invalidateDeathCache) end
+end)
+AddEventHandler('qbx_core:client:statusChanged',function() SetTimeout(0,invalidateDeathCache) end)
 function isDead()
-	if LocalPlayer.state.isDead then
+	if pr_lib.cache.GetMetadata('isdead', 0) or pr_lib.cache.GetMetadata('inlaststand', 0) or pr_lib.cache.get('dead') then
 		return true
 	elseif IsPlayerDead(PlayerId()) then
 		return true
@@ -207,7 +218,7 @@ RegisterCommand('+radiotalk', function()
 			end
 			CreateThread(function()
 				TriggerEvent("pma-voice:radioActive", true)
-				LocalPlayer.state:set("radioActive", true, true);
+				PMAStateSet('radioActive', true)
 				local checkFailed = false
 				while radioPressed do
 					local ped = PlayerPedId()
@@ -249,7 +260,7 @@ RegisterCommand('-radiotalk', function()
 		MumbleClearVoiceTargetPlayers(voiceTarget)
 		addVoiceTargets(callData)
 		TriggerEvent("pma-voice:radioActive", false)
-		LocalPlayer.state:set("radioActive", false, true);
+		PMAStateSet('radioActive', false)
 		playMicClicks(false)
 		if GetConvarInt('voice_enableRadioAnim', 1) == 1 then
 			StopAnimTask(PlayerPedId(), radioAnim.dict, radioAnim.anim, -4.0)
@@ -296,18 +307,17 @@ end
 --- adds the bit to the disableRadio bits
 ---@param bit number the bit to add
 local function addRadioDisableBit(bit)
-	local curVal = LocalPlayer.state.disableRadio or 0
+	local curVal = PMAState.disableRadio or 0
 	curVal = curVal | bit
-	LocalPlayer.state:set("disableRadio", curVal, true)
+	PMAStateSet('disableRadio', curVal)
 end
 exports("addRadioDisableBit", addRadioDisableBit)
 
 --- removes the bit from disableRadio
 ---@param bit number the bit to remove
 local function removeRadioDisableBit(bit)
-	local curVal = LocalPlayer.state.disableRadio or 0
+	local curVal = PMAState.disableRadio or 0
 	curVal = curVal & (~bit)
-	LocalPlayer.state:set("disableRadio", curVal, true)
+	PMAStateSet('disableRadio', curVal)
 end
 exports("removeRadioDisableBit", removeRadioDisableBit)
-

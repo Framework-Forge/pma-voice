@@ -31,8 +31,12 @@ AddEventHandler('onClientResourceStart', function(resource)
 		voiceMode = mode - 1
 	})
 
-	local radioChannel = LocalPlayer.state.radioChannel or 0
-	local callChannel = LocalPlayer.state.callChannel or 0
+	PMACache.refresh()
+	-- A resource restart does not require Mumble to reconnect. Recover even
+	-- when the mumbleConnected event occurred before this resource started.
+	PMAEnsureVoiceInitialized()
+	local radioChannel = PMAState.radioChannel or 0
+	local callChannel = PMAState.callChannel or 0
 
 	-- Reinitialize channels if they're set.
 	if radioChannel ~= 0 then
@@ -42,8 +46,8 @@ AddEventHandler('onClientResourceStart', function(resource)
 	if callChannel ~= 0 then
 		setCallChannel(callChannel)
 	end
-	if not LocalPlayer.state.disableRadio then
-		LocalPlayer.state:set("disableRadio", 0, true)
+	if not PMAState.disableRadio then
+		PMAStateSet('disableRadio', 0)
 	end
 
 	print('Script initialization finished.')

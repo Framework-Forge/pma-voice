@@ -2,12 +2,19 @@
 local msgpack_pack_args = msgpack.pack_args
 
 local radioChecks = {}
+local radioPolicies = {}
+exports('setRadioPolicy', function(callback)
+    local resource=GetInvokingResource()
+    if not resource then return end
+    radioPolicies[resource]=callback
+end)
 
 --- checks if the player can join the channel specified
 --- @param source number the source of the player
 --- @param radioChannel number the channel they're trying to join
 --- @return boolean if the user can join the channel
 function canJoinChannel(source, radioChannel)
+	for _,policy in pairs(radioPolicies) do if not policy(source,radioChannel) then return false end end
 	if radioChecks[radioChannel] then
 		return radioChecks[radioChannel](source)
 	end
@@ -31,19 +38,6 @@ function addChannelCheck(channel, cb)
 end
 
 exports('addChannelCheck', addChannelCheck)
-
---- removes any check for the channel
----@param channel number the channel to add a check to
-function removeChannelCheck(channel)
-	local channelType = type(channel)
-	if channelType ~= "number" then
-		error(("'channel' expected 'number' got '%s'"):format(channelType))
-	end
-	radioChecks[channel] = nil
-	logger.info("%s removed check for channel %s", GetInvokingResource(), channel)
-end
-
-exports("removeChannelCheck", removeChannelCheck)
 
 local function radioNameGetter_orig(source)
 	return GetPlayerName(source)
@@ -139,10 +133,10 @@ function setPlayerRadio(source, _radioChannel)
 			removePlayerFromRadio(source, plyVoice.radio)
 		end
 		local wasAdded = addPlayerToRadio(source, radioChannel)
-		Player(source).state.radioChannel = wasAdded and radioChannel or 0
+		PMACache.set(source, 'radioChannel', wasAdded and radioChannel or 0)
 	elseif radioChannel == 0 then
 		removePlayerFromRadio(source, plyVoice.radio)
-		Player(source).state.radioChannel = 0
+		PMACache.set(source, 'radioChannel', 0)
 	end
 end
 
@@ -169,6 +163,7 @@ end
 RegisterNetEvent('pma-voice:setTalkingOnRadio', setTalkingOnRadio)
 
 AddEventHandler("onResourceStop", function(resource)
+	radioPolicies[resource]=nil
 	for channel, cfxFunctionRef in pairs(radioChecks) do
 		local functionRef = cfxFunctionRef.__cfx_functionReference
 		local functionResource = string.match(functionRef, resource)

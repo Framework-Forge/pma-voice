@@ -167,7 +167,7 @@ These are events designed for third-party resource integration. These are emitte
 | [setPlayerRadio](docs/server-setters/setPlayerRadio.md)       | Sets the players radio channel       | int, int     |
 | [setPlayerCall](docs/server-setters/setPlayerCall.md)        | Sets the players call channel        | int, int     |
 | [addChannelCheck](docs/server-setters/addChannelCheck.md)      | Adds a channel check to the players radio channel | int, function |
-| [removeChannelCheck](docs/server-setters/removeChannelCheck.md)      | Removes a channel check for the players radio channel | int |
+
 
 ##### Getters
 
@@ -199,3 +199,118 @@ enum DisabledRadioStates {
 | Export                       | Description                                       | Parameter(s) |
 |------------------------------|---------------------------------------------------|------|
 | [getPlayersInRadioChannel](docs/server-getters/getPlayersInRadioChannel.md)     | Gets the current players in a radio channel       | int  |
+
+## Forge megaphone: initialization and diagnostics
+
+This Forge integration keeps transmission authorization in the server and voice
+cache. Resource startup also recovers initialization when Mumble is already
+connected; it does not require a new `mumbleConnected` event. Concurrent recovery
+requests are deduplicated, and each attempt has a 10-second total timeout for
+authoritative channel assignment and native acknowledgement. Disconnect cancels
+stale attempts. Later cache/connection events or a readiness check can retry.
+Custom `setVoiceState('channel', ...)` sessions are not overwritten by recovery.
+
+The client `canUseMegaphone()` export returns `boolean, reason?`, preserving its
+existing boolean result. Failure reasons distinguish configuration, connection,
+initialization, character readiness, proximity, radio transmission, call and
+incapacitation. `getMegaphoneStatus()` returns the same readiness/reason plus
+local status flags, without character identifiers or assigned-channel IDs.
+Neither export bypasses server grants or forces microphone transmission.
+
+With Forge Siren running, `/megafonediag` displays a notification and prints the
+status in F8. It works without a second player; querying readiness may schedule
+a bounded initialization attempt. After updating, restart `pma-voice` before
+`forge-siren`. Actual audibility/range/effects still require in-game testing with
+another player. The existing `voice.cfg` settings in this base already enable
+native audio, submix and megaphone.
+
+Run `lua tests/megaphone_ready_test.lua` and `lua tests/megaphone_test.lua` from
+this resource directory, alongside the cache/death/PTT/mute suites. The tests
+load actual modules with mocked native boundaries; they do not send game audio.
+
+### Local megaphone voice return (sidetone)
+
+The default local return is enabled at 30% volume, for both authorized vehicle
+and handheld transmissions. The PMA NUI opens an independent microphone stream
+only after transmission is actually authorized. A 450–3500 Hz bandpass,
+midrange boost, compressor and bounded speaker saturation approximate the
+megaphone/radio sound locally. Remote listeners use FiveM's native RadioFX
+submix with the same bandwidth. The local approximation is not bit-identical.
+This does not replace or
+modify Mumble voice targets, proximity, radio/call routing or other listeners'
+volume. It is not a server-loopback test or proof that another player hears you.
+
+The first use requires the FiveM NUI microphone permission: check F8 for the
+`pma-voice` permission request, authorize it, then hold the megaphone key again.
+This browser stream uses the default Windows/browser input and output; it does
+not inherit the separately selected GTA microphone/headphones. Set the intended
+devices as Windows defaults if they differ. Headphones are recommended to avoid
+feedback. Some client builds/device setups can reject NUI capture/playback; the
+local notice explains this without disabling the normal Mumble transmission.
+
+No audio is recorded, stored or uploaded by this monitor. Releasing the key,
+losing authorization, an interruption, device loss or resource/page teardown
+mutes/disconnects playback and stops the tracks. A late permission grant cannot
+revive a released transmission. There is no idle capture or new polling loop;
+playback startup is bounded to three seconds, and volume updates are deduplicated.
+An unanswered browser permission request can remain pending until the user acts,
+but any resulting stream is discarded if that hold is no longer current.
+
+Standalone fallback convars (Forge Siren's saved global policy overrides them):
+
+```cfg
+setr voice_megaphoneMonitor 1
+setr voice_megaphoneMonitorVolume 30
+setr voice_megaphoneRadioEffect 1
+```
+
+Volume is 0–100. Set the enable option or volume to `0` to disable only the local
+return. `getMegaphoneStatus()` / `/megafonediag` include `monitorEnabled`,
+`monitorVolume`, `monitorStatus`, `monitorActive` and `effectEnabled`. The latter
+effect flag controls coloration, independently of the monitor switch;
+`monitorActive` is acknowledged
+browser playback, not merely the key being held. Normal voice readiness and
+local monitor readiness are separate.
+
+Run `node --test tests/megaphone_monitor_test.mjs` for lifecycle/filter/permission
+regressions without opening a microphone. The same module is loaded by the
+shipped NUI and the Vue public HTML, so rebuilding the original UI preserves it.
+Actual permissions, sound quality and device selection still need a FiveM test.
+
+For native browser timer/receiver checks, run
+`node --test tests/megaphone_monitor_browser_test.mjs`. This optional development
+suite reuses the installed Playwright package in Forge Siren's `web/node_modules`
+(or the module URL supplied in `PMA_PLAYWRIGHT_MODULE`). Install its matching
+Chromium beforehand, or set `FORGE_TEST_BROWSER` to an existing Chromium
+executable. Audio capture/playback is simulated: it never asks for microphone
+permission or accesses audio devices. These tests cover repeated holds, pending
+permission and playback timeouts using real Window timers; permissive Node timer
+mocks alone do not detect browser `Illegal invocation` errors. An additional
+OfflineAudioContext test renders synthetic signals through the actual monitor
+graph to check bandwidth and gain, without accessing a microphone or physical
+output device.
+
+### Forge Siren global megaphone policy
+
+The Forge Siren settings popup includes an ADMIN tab. Its server owns permission
+checks, schema validation, revision checks and persistent global settings in
+resource KVP. PMA consumes replicated convars and server-authorized cache grants,
+not player state bags. No global-setting key was added to the client cache writer
+allowlist. Only Forge Siren's server export caller can grant amplification.
+
+Effective policy convars are `voice_enableMegaphone`, `voice_megaphoneRange`,
+`voice_megaphoneListenerVolume`, `voice_megaphoneFarVolume`,
+`voice_megaphoneMonitor`, `voice_megaphoneMonitorVolume` and
+`voice_megaphoneRadioEffect`. Gains are percentages; range is meters.
+`voice_megaphoneMaxRange` remains the operator's independent hard ceiling
+(50m by default), rather than a field writable from the NUI.
+
+The trusted `setPlayerMegaphone` grant accepts `range`, `volume` (0–1),
+optional `farVolume` (0–volume) and `token`. Near gain is held until 5m or 20%
+of range, whichever is smaller, then fades linearly to far gain at the boundary;
+outside range it is muted. Omitted `farVolume` preserves old constant-gain grants.
+Listener changes are quantized/deduplicated in the existing proximity refresh.
+Radio, calls, explicit mute and normal/custom proximity restoration retain
+priority. Global saves reapply active grants without extending heartbeat expiry.
+
+See Forge Siren's README for ACE configuration, defaults and the admin workflow.

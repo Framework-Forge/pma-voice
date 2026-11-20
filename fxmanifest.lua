@@ -1,5 +1,5 @@
 game 'common'
-version '7.0.1'
+version '7.0.3'
 
 fx_version 'cerulean'
 author 'AvarianKnight'
@@ -7,11 +7,12 @@ description 'VOIP built using FiveM\'s built in mumble.'
 
 dependencies {
 	'/onesync',
+	'pr_bridge',
 }
 
 lua54 'yes'
 
-shared_script 'shared.lua'
+shared_scripts { '@pr_bridge/init.lua', 'shared.lua', 'cache.lua' }
 
 client_scripts {
 	'client/utils/*',
@@ -29,6 +30,7 @@ server_scripts {
 }
 
 files {
+	'monitor/*.mjs',
 	'ui/*.ogg',
 	'ui/css/*.css',
 	'ui/js/*.js',

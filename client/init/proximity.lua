@@ -13,6 +13,9 @@ local listeners = {}
 function orig_addProximityCheck(ply)
 	local tgtPed = GetPlayerPed(ply)
 	local voiceRange = GetConvar('voice_useNativeAudio', 'false') == 'true' and proximity * 3 or proximity
+	-- Native audio normally over-targets for attenuation. Megaphone targets
+	-- are restricted to its actual radius, independently of normal modes.
+	if PMAMegaphone and PMAMegaphone.range() then voiceRange = PMAMegaphone.range() end
 	local distance = #(plyCoords - GetEntityCoords(tgtPed))
 	return distance < voiceRange, distance
 end
@@ -28,15 +31,16 @@ exports("resetProximityCheck", function()
 end)
 
 function addNearbyPlayers()
+	if PMAMegaphone then PMAMegaphone.refresh() end
 	if disableUpdates then return end
 	-- update here so we don't have to update every call of addProximityCheck
 	plyCoords = GetEntityCoords(PlayerPedId())
 	proximity = MumbleGetTalkerProximity()
 	currentTargets = {}
 	MumbleClearVoiceTargetChannels(voiceTarget)
-	if LocalPlayer.state.disableProximity then return end
-	MumbleAddVoiceChannelListen(LocalPlayer.state.assignedChannel)
-	MumbleAddVoiceTargetChannel(voiceTarget, LocalPlayer.state.assignedChannel)
+	if PMAState.disableProximity or not PMAState.assignedChannel then return end
+	MumbleAddVoiceChannelListen(PMAState.assignedChannel)
+	MumbleAddVoiceTargetChannel(voiceTarget, PMAState.assignedChannel)
 
 	for source, _ in pairs(callData) do
 		if source ~= playerServerId then
@@ -52,6 +56,11 @@ function addNearbyPlayers()
 		local ply = players[i]
 		local serverId = GetPlayerServerId(ply)
 		local shouldAdd, distance = addProximityCheck(ply)
+		-- A custom check cannot prevent megaphone routing, or extend it past
+		-- the configured distance. This does not replace the custom callback.
+		if PMAMegaphone and PMAMegaphone.range() then
+			shouldAdd = #(plyCoords - GetEntityCoords(GetPlayerPed(ply))) <= PMAMegaphone.range()
+		end
 		if shouldAdd then
 			-- if distance then
 			-- 	currentTargets[serverId] = distance
@@ -147,6 +156,7 @@ end)
 local lastTalkingStatus = false
 local lastRadioStatus = false
 local voiceState = "proximity"
+PMAUsesProximityVoice = true
 CreateThread(function()
 	TriggerEvent('chat:addSuggestion', '/muteply', 'Mutes the player with the specified id', {
 		{ name = "player id", help = "the player to toggle mute" },
@@ -192,6 +202,9 @@ exports("setVoiceState", function(_voiceState, channel)
 		logger.error("Didn't get a proper voice state, expected proximity or channel, got %s", _voiceState)
 	end
 	voiceState = _voiceState
+	PMAUsesProximityVoice = voiceState == 'proximity'
+	if not PMAUsesProximityVoice and PMACancelVoiceInitialization then PMACancelVoiceInitialization(true) end
+	if voiceState == 'channel' and PMAMegaphone then PMAMegaphone.interrupt() end
 	if voiceState == "channel" then
 		type_check({ channel, "number" })
 		-- 65535 is the highest a client id can go, so we add that to the base channel so we don't manage to get onto a players channel

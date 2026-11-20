@@ -14,7 +14,7 @@ function firstFreeChannel()
 end
 
 function defaultTable(source)
-	handleStateBagInitilization(source)
+	handleVoiceCacheInitialization(source)
 	return {
 		radio = 0,
 		call = 0,
@@ -23,8 +23,10 @@ function defaultTable(source)
 	}
 end
 
-function handleStateBagInitilization(source)
-	local plyState = Player(source).state
+function handleVoiceCacheInitialization(source)
+	local plyState = setmetatable({}, {
+		__index = function(_, key) return key == 'set' and function(_, name, value) PMACache.set(source, name, value) end or PMACache.get(source)[key] end,
+	})
 	if not plyState.pmaVoiceInit then
 		plyState:set('radio', GetConvarInt('voice_defaultRadioVolume', 30), true)
 		plyState:set('call', GetConvarInt('voice_defaultCallVolume', 60), true)
@@ -38,6 +40,9 @@ function handleStateBagInitilization(source)
 	end
 
 	local assignedChannel = firstFreeChannel()
+	PMACache.set(source, 'disableRadio', 0)
+	PMACache.set(source, 'radioActive', false)
+	PMACache.set(source, 'identifier', pr_lib.framework.GetIdentifier(source))
 	plyState:set('assignedChannel', assignedChannel, true)
 	if assignedChannel ~= 0 then
 		mappedChannels[assignedChannel] = source
@@ -101,7 +106,7 @@ end)
 
 AddEventHandler("playerDropped", function()
 	local source = source
-	local mappedChannel = Player(source).state.assignedChannel
+	local mappedChannel = PMACache.get(source).assignedChannel
 
 	if voiceData[source] then
 		local plyData = voiceData[source]
@@ -121,6 +126,7 @@ AddEventHandler("playerDropped", function()
 		mappedChannels[mappedChannel] = nil
 		logger.verbose('[reuse] Unassigned %s from channel %s', source, mappedChannel)
 	end
+	PMACache.clear(source)
 end)
 
 if GetConvarInt('voice_externalDisallowJoin', 0) == 1 then

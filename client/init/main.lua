@@ -1,4 +1,5 @@
 local mutedPlayers = {}
+function isVoicePlayerMuted(player) return mutedPlayers[player] == true end
 
 -- we can't use GetConvarInt because its not a integer, and theres no way to get a float... so use a hacky way it is!
 local volumes = {
@@ -24,7 +25,7 @@ function setVolume(volume, volumeType)
 	if volumeType then
 		local volumeTbl = volumes[volumeType]
 		if volumeTbl then
-			LocalPlayer.state:set(volumeType, volume, true)
+			PMAStateSet(volumeType, volume)
 			volumes[volumeType] = volumeFraction
 			resyncVolume(volumeType, volumeFraction)
 		else
@@ -33,7 +34,7 @@ function setVolume(volume, volumeType)
 	else
 		for volumeType, _ in pairs(volumes) do
 			volumes[volumeType] = volumeFraction
-			LocalPlayer.state:set(volumeType, volume, true)
+			PMAStateSet(volumeType, volume)
 		end
 		resyncVolume("all", volumeFraction)
 	end
@@ -129,7 +130,8 @@ exports("setEffectSubmix", function(type, effectId)
 end)
 
 function restoreDefaultSubmix(plyServerId)
-	local submix = Player(plyServerId).state.submix
+	if PMAMegaphone and PMAMegaphone.apply(plyServerId, true) then return end
+	local submix = PMACache.get(plyServerId).submix
 	local submixEffect = submixIndicies[submix]
 	if not submix or not submixEffect then
 		MumbleSetSubmixForServerId(plyServerId, -1)
@@ -173,6 +175,7 @@ function toggleVoice(plySource, enabled, moduleType)
 			end)
 		end
 		MumbleSetVolumeOverrideByServerId(plySource, -1.0)
+		if PMAMegaphone then PMAMegaphone.apply(plySource, true) end
 	end
 end
 
@@ -180,6 +183,7 @@ local function updateVolumes(voiceTable, override)
 	for serverId, talking in pairs(voiceTable) do
 		if serverId == playerServerId then goto skip_iter end
 		MumbleSetVolumeOverrideByServerId(serverId, talking and override or -1.0)
+		if not talking and PMAMegaphone then PMAMegaphone.apply(serverId, true) end
 		::skip_iter::
 	end
 end
@@ -257,6 +261,7 @@ function toggleMutePlayer(source)
 		mutedPlayers[source] = true
 		MumbleSetVolumeOverrideByServerId(source, 0.0)
 	end
+	if PMAMegaphone then PMAMegaphone.apply(source, true) end
 end
 
 exports('toggleMutePlayer', toggleMutePlayer)

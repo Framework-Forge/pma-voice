@@ -4,11 +4,11 @@ RegisterCommand('setvoiceintent', function(source, args)
 	if GetConvarInt('voice_allowSetIntent', 1) == 1 then
 		local intent = args[1]
 		if intent == 'speech' then
-			MumbleSetAudioInputIntent(`speech`)
+			MumbleSetAudioInputIntent(joaat('speech'))
 		elseif intent == 'music' then
-			MumbleSetAudioInputIntent(`music`)
+			MumbleSetAudioInputIntent(joaat('music'))
 		end
-		LocalPlayer.state:set('voiceIntent', intent, true)
+		PMAStateSet('voiceIntent', intent)
 	end
 end)
 TriggerEvent('chat:addSuggestion', '/setvoiceintent', 'Sets the players voice intent', {
@@ -34,8 +34,9 @@ end)
 
 function setProximityState(proximityRange, isCustom)
 	local voiceModeData = Cfg.voiceModes[mode]
-	MumbleSetTalkerProximity(proximityRange + 0.0)
-	LocalPlayer.state:set('proximity', {
+	if PMAMegaphone then PMAMegaphone.setBaseRange(proximityRange)
+	else MumbleSetTalkerProximity(proximityRange + 0.0) end
+	PMAStateSet('proximity', {
 		index = mode,
 		distance = proximityRange,
 		mode = isCustom and "Custom" or voiceModeData[2],

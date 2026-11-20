@@ -1,27 +1,37 @@
-let mutedPlayers = {}
-// this is implemented in JS due to Lua's lack of a ClearTimeout
-// muteply instead of mute because mute conflicts with rp-radio
+const mutedPlayers = new Map();
+// muteply is a toggle; a cancelled timer must never survive a subsequent mute.
 RegisterCommand('muteply', (source, args) => {
-	const mutePly = parseInt(args[0])
-	const duration = parseInt(args[1]) || 900
-	if (mutePly && exports[GetCurrentResourceName()].isValidPlayer(mutePly)) {
-		const isMuted = !MumbleIsPlayerMuted(mutePly);
-		Player(mutePly).state.muted = isMuted;
-		MumbleSetPlayerMuted(mutePly, isMuted);
-		emit('pma-voice:playerMuted', mutePly, source, isMuted, duration);
-		// since this is a toggle, if theres a mutedPlayers entry it can be assumed
-		// that they're currently muted, so we'll clear the timeout and unmute
-		if (mutedPlayers[mutePly]) {
-			clearTimeout(mutedPlayers[mutePly]);
-			delete mutedPlayers[mutePly];
-			MumbleSetPlayerMuted(mutePly, isMuted)
-			Player(mutePly).state.muted = isMuted;
-			return;
-		}
-		mutedPlayers[mutePly] = setTimeout(() => {
-			MumbleSetPlayerMuted(mutePly, !isMuted)
-			Player(mutePly).state.muted = !isMuted;
-			delete mutedPlayers[mutePly]
-		}, duration * 1000)
-	}
-}, true)
+    const player = Number(args[0]);
+    const duration = args[1] === undefined ? 900 : Number(args[1]);
+    const voice = exports[GetCurrentResourceName()];
+    if (!Number.isInteger(player) || player <= 0 || !Number.isInteger(duration)
+        || duration < 1 || duration > 86400 || !voice.isValidPlayer(player)) return;
+
+    const previous = mutedPlayers.get(player);
+    if (previous) clearTimeout(previous.timer);
+    mutedPlayers.delete(player);
+
+    const muted = !MumbleIsPlayerMuted(player);
+    MumbleSetPlayerMuted(player, muted);
+    voice.SetVoiceState(player, 'muted', muted);
+    emit('pma-voice:playerMuted', player, source, muted, duration);
+    if (!muted) return;
+
+    const entry = {};
+    entry.timer = setTimeout(() => {
+        // Ignore a cancelled timer or an ID reused by a different session.
+        if (mutedPlayers.get(player) !== entry) return;
+        mutedPlayers.delete(player);
+        if (!voice.isValidPlayer(player)) return;
+        MumbleSetPlayerMuted(player, false);
+        voice.SetVoiceState(player, 'muted', false);
+    }, duration * 1000);
+    mutedPlayers.set(player, entry);
+}, true);
+
+on('playerDropped', () => {
+    const player = Number(global.source);
+    const entry = mutedPlayers.get(player);
+    if (entry) clearTimeout(entry.timer);
+    mutedPlayers.delete(player);
+});

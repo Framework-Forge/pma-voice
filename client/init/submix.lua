@@ -1,5 +1,5 @@
-AddStateBagChangeHandler("submix", "", function(bagName, _, value)
-	local tgtId = tonumber(bagName:gsub('player:', ''), 10)
+AddEventHandler('pma-voice:cache:submix', function(playerSource, value)
+	local tgtId = tonumber(playerSource)
 	if not tgtId then return end
 	-- We got an invalid submix, discard we don't care about it
 	if value and not submixIndicies[value] then
@@ -7,16 +7,8 @@ AddStateBagChangeHandler("submix", "", function(bagName, _, value)
 			tgtId, value)
 	end
 
-	-- we don't want to reset submix if the player is talking on the radio
-	if not value then
-		if not radioData[tgtId] and not callData[tgtId] then
-			logger.info("Resetting submix for player %s", tgtId)
-			MumbleSetSubmixForServerId(tgtId, -1)
-		end
-		return
-	end
-	logger.info("%s had their submix set to %s", tgtId, value)
-	MumbleSetSubmixForServerId(tgtId, submixIndicies[value])
+	-- Cache updates must not replace an active radio/call/megaphone effect.
+	if not radioData[tgtId] and not callData[tgtId] then restoreDefaultSubmix(tgtId) end
 end)
 
 RegisterNetEvent("onPlayerDropped", function(tgtId)
